@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from kafka import KafkaConsumer
-from kafka.errors import NoBrokersAvailable
+from kafka.errors import KafkaConnectionError
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
@@ -89,7 +89,7 @@ def connect_consumer_with_retry(
                 consumer_group,
             )
             return consumer
-        except NoBrokersAvailable:
+        except KafkaConnectionError:
             logger.warning(
                 "Kafka not ready, retrying... attempt=%s/%s",
                 attempt,
@@ -123,11 +123,18 @@ def consume_vendor_payment_events(
     consumer_name: str = "consumer-A",
     consumer_group: str = "vendor-payments-consumer-group",
 ) -> dict[str, int]:
-    """Consume vendor payment events, apply Redis dedup, and write staging output."""
-    consumer = connect_consumer_with_retry(consumer_group=consumer_group)
+    """Consume events, apply Redis deduplication, and write execution metadata."""
+    execution_started_at = time.perf_counter()
+
+    consumer = connect_consumer_with_retry(
+        consumer_group=consumer_group,
+    )
     deduplicator = RedisDeduplicator()
 
-    STAGING_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STAGING_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     metrics = {
         "consumed_events": 0,
@@ -137,8 +144,15 @@ def consume_vendor_payment_events(
         "large_payment_alerts_sent": 0,
     }
 
-    logger.info("%s started and waiting for messages...", consumer_name)
-    logger.info("%s writing accepted events to %s", consumer_name, STAGING_FILE)
+    logger.info(
+        "%s started and waiting for messages...",
+        consumer_name,
+    )
+    logger.info(
+        "%s writing accepted events to %s",
+        consumer_name,
+        STAGING_FILE,
+    )
 
     try:
         for message in consumer:
@@ -154,12 +168,16 @@ def consume_vendor_payment_events(
                     metrics["rejected_duplicates"] += 1
 
                     logger.warning(
-                        "duplicate event rejected | consumer=%s topic=%s partition=%s offset=%s event_id=%s",
+                        (
+                            "duplicate event rejected | "
+                            "consumer=%s topic=%s partition=%s "
+                            "offset=%s event_id=%s"
+                        ),
                         consumer_name,
                         message.topic,
                         message.partition,
                         message.offset,
-                        event["event_id"],
+                        event_id,
                     )
 
                     consumer.commit()
@@ -169,31 +187,43 @@ def consume_vendor_payment_events(
                 metrics["accepted_events"] += 1
 
                 if (
-                        is_large_payment_event(event)
-                        and metrics["large_payment_alerts_sent"] < TELEGRAM_LARGE_PAYMENT_ALERT_LIMIT
+                    is_large_payment_event(event)
+                    and metrics["large_payment_alerts_sent"]
+                    < TELEGRAM_LARGE_PAYMENT_ALERT_LIMIT
                 ):
-                    alert_message = build_large_payment_alert_message(event)
-                    alert_sent = send_telegram_alert(alert_message)
+                    alert_message = build_large_payment_alert_message(
+                        event
+                    )
+                    alert_sent = send_telegram_alert(
+                        alert_message
+                    )
 
                     if alert_sent:
                         metrics["large_payment_alerts_sent"] += 1
 
                     logger.warning(
-                        "large payment alert evaluated | consumer=%s event_id=%s alert_sent=%s",
+                        (
+                            "large payment alert evaluated | "
+                            "consumer=%s event_id=%s "
+                            "alert_sent=%s"
+                        ),
                         consumer_name,
-                        event["event_id"],
+                        event_id,
                         alert_sent,
                     )
 
                 deduplicator.mark_processed(event)
 
                 logger.info(
-                    "accepted event | consumer=%s topic=%s partition=%s offset=%s event_id=%s",
+                    (
+                        "accepted event | consumer=%s topic=%s "
+                        "partition=%s offset=%s event_id=%s"
+                    ),
                     consumer_name,
                     message.topic,
                     message.partition,
                     message.offset,
-                    event["event_id"],
+                    event_id,
                 )
 
                 consumer.commit()
@@ -202,7 +232,10 @@ def consume_vendor_payment_events(
                 metrics["failed_events"] += 1
 
                 logger.exception(
-                    "event processing failed | consumer=%s topic=%s partition=%s offset=%s error=%s",
+                    (
+                        "event processing failed | consumer=%s "
+                        "topic=%s partition=%s offset=%s error=%s"
+                    ),
                     consumer_name,
                     getattr(message, "topic", None),
                     getattr(message, "partition", None),
@@ -215,27 +248,62 @@ def consume_vendor_payment_events(
     finally:
         consumer.close()
 
+    runtime_seconds = (
+        time.perf_counter()
+        - execution_started_at
+    )
+
     report = build_streaming_summary_report(
-        base_events=metrics["accepted_events"],
-        produced_events=metrics["consumed_events"],
+        consumed_events=metrics["consumed_events"],
         accepted_events=metrics["accepted_events"],
         rejected_duplicates=metrics["rejected_duplicates"],
+        failed_events=metrics["failed_events"],
+        large_payment_alerts_sent=(
+            metrics["large_payment_alerts_sent"]
+        ),
+        runtime_seconds=runtime_seconds,
+        consumer_group=consumer_group,
         topic=TOPIC_VENDOR_PAYMENTS,
         staging_file=STAGING_FILE,
     )
 
-    report["large_payment_alerts_sent"] = metrics["large_payment_alerts_sent"]
-
-    if metrics["failed_events"]:
-        report["failed_events"] = metrics["failed_events"]
-
     write_streaming_summary_report(report)
 
-    logger.info("Vendor payment streaming consumption completed.")
-    logger.info("Consumed events: %s", f"{metrics['consumed_events']:,}")
-    logger.info("Accepted events: %s", f"{metrics['accepted_events']:,}")
-    logger.info("Rejected duplicates: %s", f"{metrics['rejected_duplicates']:,}")
-    logger.info("Failed events: %s", f"{metrics['failed_events']:,}")
+    logger.info(
+        "Vendor payment streaming consumption completed."
+    )
+    logger.info(
+        "Consumer runtime: %.3f seconds",
+        runtime_seconds,
+    )
+    logger.info(
+        "Consumed events: %s",
+        f"{metrics['consumed_events']:,}",
+    )
+    logger.info(
+        "Accepted events: %s",
+        f"{metrics['accepted_events']:,}",
+    )
+    logger.info(
+        "Rejected duplicates: %s",
+        f"{metrics['rejected_duplicates']:,}",
+    )
+    logger.info(
+        "Failed events: %s",
+        f"{metrics['failed_events']:,}",
+    )
+    logger.info(
+        "Large-payment alerts sent: %s",
+        f"{metrics['large_payment_alerts_sent']:,}",
+    )
+    logger.info(
+        "Execution status: %s",
+        report["status"],
+    )
+    logger.info(
+        "Validation status: %s",
+        report["validation"]["status"],
+    )
 
     return metrics
 

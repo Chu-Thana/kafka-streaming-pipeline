@@ -64,7 +64,7 @@ STAGING_FILE = Path(
 STREAMING_SUMMARY_REPORT_FILE = Path(
     os.getenv(
         "STREAMING_SUMMARY_REPORT_FILE",
-        str(REPORT_DIR / "streaming_summary_report.json"),
+        str(REPORT_DIR / "consumer_execution_summary.json"),
     )
 )
 
@@ -129,3 +129,11 @@ REDIS_LOG_LEVEL = os.getenv("REDIS_LOG_LEVEL", "WARNING")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 ENABLE_TELEGRAM_ALERTS = os.getenv("ENABLE_TELEGRAM_ALERTS", "false").lower() == "true"
+
+
+PRODUCER_EXECUTION_REPORT_FILE = Path(
+    os.getenv(
+        "PRODUCER_EXECUTION_REPORT_FILE",
+        str(REPORT_DIR / "producer_execution_summary.json"),
+    )
+)

@@ -4,6 +4,7 @@ import json
 import logging
 import random
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -26,10 +27,18 @@ from common.config import (  # noqa: E402
     TOPIC_VENDOR_PAYMENTS,
 )
 from common.event_builder import build_vendor_payment_event  # noqa: E402
+from common.reporting import (  # noqa: E402
+    build_producer_execution_report,
+    write_producer_execution_report,
+)
 
 
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
+    level=getattr(
+        logging,
+        LOG_LEVEL.upper(),
+        logging.INFO,
+    ),
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
@@ -40,7 +49,15 @@ def build_kafka_producer() -> KafkaProducer:
     """Build Kafka producer for local Kafka or cloud Kafka."""
     config: dict[str, Any] = {
         "bootstrap_servers": KAFKA_BROKER,
-        "value_serializer": lambda value: json.dumps(value).encode("utf-8"),
+        "value_serializer": lambda value: json.dumps(
+            value
+        ).encode("utf-8"),
+        "acks": "all",
+        "enable_idempotence": True,
+        "delivery_timeout_ms": 300000,
+        "request_timeout_ms": 60000,
+        "max_block_ms": 120000,
+        "linger_ms": 5,
     }
 
     if KAFKA_SECURITY_PROTOCOL != "PLAINTEXT":
@@ -56,7 +73,9 @@ def build_kafka_producer() -> KafkaProducer:
     return KafkaProducer(**config)
 
 
-def _build_message_key(event: dict[str, Any]) -> bytes:
+def _build_message_key(
+    event: dict[str, Any],
+) -> bytes:
     """Build Kafka message key for partitioning."""
     key = (
         event.get("business_composite_key")
@@ -67,23 +86,34 @@ def _build_message_key(event: dict[str, Any]) -> bytes:
     return str(key).encode("utf-8")
 
 
-def load_vendor_payment_events() -> list[dict[str, Any]]:
-    """Load streaming sample CSV and convert rows into Kafka events."""
+def load_vendor_payment_events() -> tuple[
+    list[dict[str, Any]],
+    int,
+]:
+    """Load the streaming sample and build base Kafka events."""
     if not STREAM_SAMPLE_FILE.exists():
         raise FileNotFoundError(
-            f"Streaming sample file not found: {STREAM_SAMPLE_FILE}. "
+            f"Streaming sample file not found: "
+            f"{STREAM_SAMPLE_FILE}. "
             "Run scripts/prepare_stream_sample.py first."
         )
 
-    df = pd.read_csv(STREAM_SAMPLE_FILE)
+    dataframe = pd.read_csv(STREAM_SAMPLE_FILE)
 
-    if df.empty:
-        raise ValueError(f"Streaming sample file is empty: {STREAM_SAMPLE_FILE}")
+    if dataframe.empty:
+        raise ValueError(
+            f"Streaming sample file is empty: "
+            f"{STREAM_SAMPLE_FILE}"
+        )
 
-    return [
+    source_row_count = len(dataframe)
+
+    events = [
         build_vendor_payment_event(row)
-        for _, row in df.iterrows()
+        for _, row in dataframe.iterrows()
     ]
+
+    return events, source_row_count
 
 
 def inject_duplicate_events(
@@ -91,11 +121,13 @@ def inject_duplicate_events(
     duplicate_rate: float = DUPLICATE_RATE,
     random_seed: int = RANDOM_SEED,
 ) -> list[dict[str, Any]]:
-    """Inject duplicate events by reusing the same event_id and payload."""
+    """Inject duplicate events by reusing event IDs and payloads."""
     if not events:
         return []
 
-    duplicate_count = int(len(events) * duplicate_rate)
+    duplicate_count = int(
+        len(events) * duplicate_rate
+    )
 
     if duplicate_count <= 0:
         return events
@@ -104,51 +136,207 @@ def inject_duplicate_events(
 
     duplicate_events = random.sample(
         events,
-        k=min(duplicate_count, len(events)),
+        k=min(
+            duplicate_count,
+            len(events),
+        ),
     )
 
-    produced_events = [*events, *duplicate_events]
+    produced_events = [
+        *events,
+        *duplicate_events,
+    ]
+
     random.shuffle(produced_events)
 
     return produced_events
 
 
-def produce_events(events: list[dict[str, Any]]) -> None:
-    """Send vendor payment events to Kafka."""
+def produce_events(
+    events: list[dict[str, Any]],
+    acknowledgement_timeout_seconds: int = 30,
+    acknowledgement_batch_size: int = 1000,
+) -> dict[str, int]:
+    """Send events to Kafka and collect acknowledgements in bounded batches."""
     producer = build_kafka_producer()
 
+    metrics = {
+        "events_attempted": len(events),
+        "events_acknowledged": 0,
+        "failed_events": 0,
+    }
+
+    pending_deliveries: list[tuple[str, Any]] = []
+
     logger.info(
-        "Producer started | broker=%s | security_protocol=%s | topic=%s",
+        (
+            "Producer started | broker=%s | "
+            "security_protocol=%s | topic=%s"
+        ),
         KAFKA_BROKER,
         KAFKA_SECURITY_PROTOCOL,
         TOPIC_VENDOR_PAYMENTS,
     )
 
-    for event in events:
-        producer.send(
-            topic=TOPIC_VENDOR_PAYMENTS,
-            key=_build_message_key(event),
-            value=event,
-        )
+    def resolve_pending_deliveries() -> None:
+        for event_id, delivery_future in pending_deliveries:
+            try:
+                delivery_future.get(
+                    timeout=acknowledgement_timeout_seconds
+                )
+                metrics["events_acknowledged"] += 1
 
-    producer.flush()
-    producer.close()
+            except Exception as error:
+                metrics["failed_events"] += 1
+
+                logger.error(
+                    (
+                        "Kafka delivery acknowledgement failed | "
+                        "event_id=%s error=%s"
+                    ),
+                    event_id,
+                    str(error),
+                )
+
+        pending_deliveries.clear()
+
+    try:
+        for event in events:
+            try:
+                delivery_future = producer.send(
+                    topic=TOPIC_VENDOR_PAYMENTS,
+                    key=_build_message_key(event),
+                    value=event,
+                )
+
+                pending_deliveries.append(
+                    (
+                        str(event["event_id"]),
+                        delivery_future,
+                    )
+                )
+
+                if (
+                    len(pending_deliveries)
+                    >= acknowledgement_batch_size
+                ):
+                    resolve_pending_deliveries()
+
+            except Exception as error:
+                metrics["failed_events"] += 1
+
+                logger.error(
+                    (
+                        "Kafka send request failed | "
+                        "event_id=%s error=%s"
+                    ),
+                    event.get("event_id"),
+                    str(error),
+                )
+
+        if pending_deliveries:
+            resolve_pending_deliveries()
+
+        producer.flush()
+
+    finally:
+        producer.close()
+
+    return metrics
 
 
 def main() -> None:
-    """Produce vendor payment events with intentional duplicate injection."""
-    base_events = load_vendor_payment_events()
-    produced_events = inject_duplicate_events(base_events)
+    """Produce events and write producer execution metadata."""
+    execution_started_at = time.perf_counter()
 
-    produce_events(produced_events)
+    base_events, source_row_count = (
+        load_vendor_payment_events()
+    )
 
-    duplicate_events = len(produced_events) - len(base_events)
+    produced_events = inject_duplicate_events(
+        base_events
+    )
 
-    logger.info("Vendor payment streaming production completed.")
-    logger.info("Base events: %s", f"{len(base_events):,}")
-    logger.info("Duplicate events injected: %s", f"{duplicate_events:,}")
-    logger.info("Total events produced: %s", f"{len(produced_events):,}")
-    logger.info("Duplicate rate configured: %.4f", DUPLICATE_RATE)
+    delivery_metrics = produce_events(
+        produced_events
+    )
+
+    runtime_seconds = (
+        time.perf_counter()
+        - execution_started_at
+    )
+
+    duplicate_events_injected = (
+        len(produced_events)
+        - len(base_events)
+    )
+
+    report = build_producer_execution_report(
+        source_file=STREAM_SAMPLE_FILE,
+        source_row_count=source_row_count,
+        base_event_count=len(base_events),
+        duplicate_events_injected=(
+            duplicate_events_injected
+        ),
+        events_attempted=delivery_metrics[
+            "events_attempted"
+        ],
+        events_acknowledged=delivery_metrics[
+            "events_acknowledged"
+        ],
+        failed_events=delivery_metrics[
+            "failed_events"
+        ],
+        runtime_seconds=runtime_seconds,
+        duplicate_rate_configured=DUPLICATE_RATE,
+        topic=TOPIC_VENDOR_PAYMENTS,
+    )
+
+    write_producer_execution_report(report)
+
+    logger.info(
+        "Vendor payment streaming production completed."
+    )
+    logger.info(
+        "Producer runtime: %.3f seconds",
+        runtime_seconds,
+    )
+    logger.info(
+        "Source rows: %s",
+        f"{source_row_count:,}",
+    )
+    logger.info(
+        "Base events: %s",
+        f"{len(base_events):,}",
+    )
+    logger.info(
+        "Duplicate events injected: %s",
+        f"{duplicate_events_injected:,}",
+    )
+    logger.info(
+        "Events attempted: %s",
+        f"{delivery_metrics['events_attempted']:,}",
+    )
+    logger.info(
+        "Events acknowledged: %s",
+        f"{delivery_metrics['events_acknowledged']:,}",
+    )
+    logger.info(
+        "Failed events: %s",
+        f"{delivery_metrics['failed_events']:,}",
+    )
+    logger.info(
+        "Duplicate rate configured: %.4f",
+        DUPLICATE_RATE,
+    )
+    logger.info(
+        "Execution status: %s",
+        report["status"],
+    )
+    logger.info(
+        "Validation status: %s",
+        report["validation"]["status"],
+    )
 
 
 if __name__ == "__main__":
