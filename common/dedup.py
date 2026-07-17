@@ -52,13 +52,3 @@ class RedisDeduplicator:
             time=self.ttl_seconds,
             value=json.dumps(value, ensure_ascii=False),
         )
-
-    def should_accept(self, event: dict[str, Any]) -> bool:
-        """Legacy helper. Do not use when durable staging write must happen before Redis mark."""
-        event_id = str(event["event_id"])
-
-        if self.is_duplicate(event_id):
-            return False
-
-        self.mark_processed(event)
-        return True

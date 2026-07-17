@@ -314,5 +314,8 @@ def main(consumer_name: str = "consumer-A") -> None:
 
 
 if __name__ == "__main__":
-    name = sys.argv[1] if len(sys.argv) > 1 else "consumer-A"
+    if len(sys.argv) > 1:
+        name = sys.argv[1]
+    else:
+        name = "consumer-A"
     main(name)
