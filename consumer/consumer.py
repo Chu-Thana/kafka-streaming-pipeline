@@ -183,7 +183,27 @@ def consume_vendor_payment_events(
                     consumer.commit()
                     continue
 
-                write_event_to_staging(event)
+                for attempt in range(1, 4):
+                    try:
+                        write_event_to_staging(event)
+                        break
+
+                    except Exception as error:
+                        if attempt == 3:
+                            raise
+
+                        logger.warning(
+                            (
+                                "staging write failed, retrying | "
+                                "event_id=%s attempt=%s error=%s"
+                            ),
+                            event_id,
+                            attempt,
+                            str(error),
+                        )
+
+                        time.sleep(2)
+
                 metrics["accepted_events"] += 1
 
                 if (
@@ -243,7 +263,7 @@ def consume_vendor_payment_events(
                     str(error),
                 )
 
-                continue
+                break
 
     finally:
         consumer.close()
