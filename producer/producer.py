@@ -108,10 +108,11 @@ def load_vendor_payment_events() -> tuple[
 
     source_row_count = len(dataframe)
 
-    events = [
-        build_vendor_payment_event(row)
-        for _, row in dataframe.iterrows()
-    ]
+    events = []
+
+    for _, row in dataframe.iterrows():
+        event = build_vendor_payment_event(row)
+        events.append(event)
 
     return events, source_row_count
 
