@@ -109,11 +109,11 @@ def validate_event(event: dict[str, Any]) -> None:
         "source_system",
     ]
 
-    missing_fields = [
-        field
-        for field in required_fields
-        if field not in event or event[field] in (None, "")
-    ]
+    missing_fields = []
+
+    for field in required_fields:
+        if field not in event or event[field] in (None, ""):
+            missing_fields.append(field)
 
     if missing_fields:
         raise ValueError(f"Missing required event fields: {missing_fields}")
