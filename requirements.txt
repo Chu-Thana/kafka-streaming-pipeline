@@ -4,4 +4,4 @@ requests
 python-dotenv
 pandas>=2.2.0
 pytest
-ruff
+ruff==0.15.17
