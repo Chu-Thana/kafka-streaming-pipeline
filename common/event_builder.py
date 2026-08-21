@@ -36,7 +36,7 @@ def build_vendor_payment_event(row: pd.Series) -> dict[str, Any]:
 
         # Promote frequently used fields to the top level for routing, deduplication, and alerting.
         "source_system": str(
-            row.get("source_system", "vendor_payments_project1_silver")
+            row.get("source_system", "vendor_payments_etl_silver")
         ),
         "source_row_hash": _to_json_safe_value(row.get("source_row_hash")),
         "business_composite_key": _to_json_safe_value(

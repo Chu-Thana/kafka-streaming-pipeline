@@ -58,7 +58,7 @@ def test_validate_event_accepts_required_fields():
         "event_id": "event-001",
         "event_type": "vendor_payment_event",
         "event_timestamp": "2026-06-06T00:00:00+00:00",
-        "source_system": "vendor_payments_project1_silver",
+        "source_system": "vendor_payments_etl_silver",
     }
 
     validate_event(event)
@@ -68,7 +68,7 @@ def test_validate_event_rejects_missing_event_id():
     event = {
         "event_type": "vendor_payment_event",
         "event_timestamp": "2026-06-06T00:00:00+00:00",
-        "source_system": "vendor_payments_project1_silver",
+        "source_system": "vendor_payments_etl_silver",
     }
 
     with pytest.raises(
@@ -83,7 +83,7 @@ def test_validate_event_rejects_empty_required_field():
         "event_id": "",
         "event_type": "vendor_payment_event",
         "event_timestamp": "2026-06-06T00:00:00+00:00",
-        "source_system": "vendor_payments_project1_silver",
+        "source_system": "vendor_payments_etl_silver",
     }
 
     with pytest.raises(
@@ -101,7 +101,7 @@ def test_consume_vendor_payment_events_returns_execution_metrics(
         "event_id": "event-accepted",
         "event_type": "vendor_payment_event",
         "event_timestamp": "2026-06-06T00:00:00+00:00",
-        "source_system": "vendor_payments_project1_silver",
+        "source_system": "vendor_payments_etl_silver",
         "payment_amount": 100.0,
     }
 
@@ -109,14 +109,14 @@ def test_consume_vendor_payment_events_returns_execution_metrics(
         "event_id": "event-duplicate",
         "event_type": "vendor_payment_event",
         "event_timestamp": "2026-06-06T00:00:01+00:00",
-        "source_system": "vendor_payments_project1_silver",
+        "source_system": "vendor_payments_etl_silver",
         "payment_amount": 200.0,
     }
 
     invalid_event = {
         "event_type": "vendor_payment_event",
         "event_timestamp": "2026-06-06T00:00:02+00:00",
-        "source_system": "vendor_payments_project1_silver",
+        "source_system": "vendor_payments_etl_silver",
     }
 
     messages = [

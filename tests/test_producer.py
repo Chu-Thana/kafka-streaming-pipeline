@@ -107,7 +107,7 @@ def build_event(
         "event_id": event_id,
         "event_type": "vendor_payment_event",
         "event_timestamp": "2026-06-19T00:00:00+00:00",
-        "source_system": "vendor_payments_project1_silver",
+        "source_system": "vendor_payments_etl_silver",
         "business_composite_key": business_composite_key,
         "source_row_hash": source_row_hash,
     }
@@ -186,11 +186,11 @@ def test_load_vendor_payment_events_returns_events_and_source_count(
             "source_system,supplier_name,vouchers_paid\n"
             "event-001,vendor_payment_event,"
             "2026-06-19T00:00:00+00:00,"
-            "vendor_payments_project1_silver,"
+            "vendor_payments_etl_silver,"
             "Supplier A,100.0\n"
             "event-002,vendor_payment_event,"
             "2026-06-19T00:00:01+00:00,"
-            "vendor_payments_project1_silver,"
+            "vendor_payments_etl_silver,"
             "Supplier B,200.0\n"
         ),
         encoding="utf-8",

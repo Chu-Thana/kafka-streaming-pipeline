@@ -11,7 +11,7 @@ def test_build_vendor_payment_event_contains_required_fields():
             "event_id": "event-001",
             "event_type": "vendor_payment_event",
             "event_timestamp": "2026-06-06T00:00:00+00:00",
-            "source_system": "vendor_payments_project1_silver",
+            "source_system": "vendor_payments_etl_silver",
             "source_row_hash": "hash-001",
             "business_composite_key": "key-001",
             "fiscal_year": 2025,
@@ -47,7 +47,7 @@ def test_build_vendor_payment_event_rejects_missing_event_id():
             "event_id": "",
             "event_type": "vendor_payment_event",
             "event_timestamp": "2026-06-06T00:00:00+00:00",
-            "source_system": "vendor_payments_project1_silver",
+            "source_system": "vendor_payments_etl_silver",
         }
     )
 

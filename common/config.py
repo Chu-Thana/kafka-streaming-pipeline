@@ -30,21 +30,11 @@ ALERT_DIR = BASE_DIR / "alerts"
 VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE = Path(
     os.getenv(
         "VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE",
-        r"E:\dev\vendor-payments-etl-analytics\data\processed\silver\vendor_payments_silver_stream_sample_100k.csv",
+        str(
+            INPUT_DIR
+            / "vendor_payments_silver_stream_sample_100k.csv"
+        ),
     )
-)
-
-etl_silver_sample_file = os.getenv(
-    "VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE"
-)
-
-if not etl_silver_sample_file:
-    raise ValueError(
-        "VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE is not configured."
-    )
-
-VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE = Path(
-    etl_silver_sample_file
 )
 
 STREAM_SAMPLE_FILE = Path(

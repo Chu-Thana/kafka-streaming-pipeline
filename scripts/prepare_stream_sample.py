@@ -17,20 +17,21 @@ from common.config import (  # noqa: E402
 )
 
 def prepare_stream_sample() -> None:
-    """Create a streaming input sample from Project 1 silver output."""
+    """Create a streaming input sample from Vendor Payments ETL silver output."""
 
     if not VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE.exists():
         raise FileNotFoundError(
-            f"Project 1 silver sample file not found: {VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE}"
+            "Vendor Payments ETL silver sample file not found: "
+            f"{VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE}"
         )
 
     STREAM_SAMPLE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-    # Read cleaned Project 1 silver output as the source for streaming events.
+    # Read cleaned Vendor Payments ETL silver output as the source for streaming events.
     df = pd.read_csv(VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE)
 
     if df.empty:
-        raise ValueError("Project 1 silver sample file is empty.")
+        raise ValueError("Vendor Payments ETL silver sample file is empty.")
 
     sample_size = min(STREAM_SAMPLE_SIZE, len(df))
 
@@ -46,7 +47,7 @@ def prepare_stream_sample() -> None:
     stream_df.insert(0, "event_id", [str(uuid.uuid4()) for _ in range(len(stream_df))])
     stream_df.insert(1, "event_type", "vendor_payment_event")
     stream_df.insert(2, "event_timestamp", now)
-    stream_df.insert(3, "source_system", "vendor_payments_silver_stream_sample_100k")
+    stream_df.insert(3, "source_system", "vendor_payments_etl_silver")
 
     stream_df.to_csv(STREAM_SAMPLE_FILE, index=False)
 

@@ -30,7 +30,7 @@ def test_build_large_payment_alert_message_contains_expected_fields():
         "department": "FINANCE",
         "fiscal_year": 2026,
         "vouchers_paid": 1_500_000,
-        "source_system": "vendor_payments_project1_silver",
+        "source_system": "vendor_payments_etl_silver",
     }
 
     message = build_large_payment_alert_message(event)

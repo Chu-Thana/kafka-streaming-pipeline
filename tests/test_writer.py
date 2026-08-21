@@ -10,7 +10,7 @@ def test_write_event_to_staging_creates_jsonl_record(tmp_path):
         "event_id": "event-001",
         "event_type": "vendor_payment_event",
         "event_timestamp": "2026-06-06T00:00:00+00:00",
-        "source_system": "vendor_payments_project1_silver",
+        "source_system": "vendor_payments_etl_silver",
         "source_row_hash": "hash-001",
         "business_composite_key": "key-001",
         "payment_amount": 12500.50,
