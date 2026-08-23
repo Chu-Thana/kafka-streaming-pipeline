@@ -49,7 +49,7 @@ def clear_streaming_dedup_keys(
     redis_host: str = REDIS_HOST,
     redis_port: int = REDIS_PORT,
 ) -> int:
-    """Delete only Project 3 event deduplication keys from Redis."""
+    """Delete only Vendor Payments streaming deduplication keys from Redis."""
     client = redis.Redis(
         host=redis_host,
         port=redis_port,
