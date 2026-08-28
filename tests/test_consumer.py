@@ -59,6 +59,7 @@ def test_validate_event_accepts_required_fields():
         "event_type": "vendor_payment_event",
         "event_timestamp": "2026-06-06T00:00:00+00:00",
         "source_system": "vendor_payments_etl_silver",
+        "window_id": "stream_window_001",
     }
 
     validate_event(event)
@@ -103,6 +104,7 @@ def test_consume_vendor_payment_events_returns_execution_metrics(
         "event_timestamp": "2026-06-06T00:00:00+00:00",
         "source_system": "vendor_payments_etl_silver",
         "payment_amount": 100.0,
+        "window_id": "stream_window_001",
     }
 
     duplicate_event = {
@@ -111,6 +113,7 @@ def test_consume_vendor_payment_events_returns_execution_metrics(
         "event_timestamp": "2026-06-06T00:00:01+00:00",
         "source_system": "vendor_payments_etl_silver",
         "payment_amount": 200.0,
+        "window_id": "stream_window_001",
     }
 
     invalid_event = {
@@ -128,16 +131,14 @@ def test_consume_vendor_payment_events_returns_execution_metrics(
     fake_consumer = FakeKafkaConsumer(messages)
     fake_deduplicator = FakeRedisDeduplicator()
 
-    staging_file = tmp_path / "staging.jsonl"
-
     written_events = []
     report_arguments = {}
     saved_reports = []
 
     monkeypatch.setattr(
         consumer_module,
-        "STAGING_FILE",
-        staging_file,
+        "STAGING_DIR",
+        tmp_path,
     )
 
     monkeypatch.setattr(
@@ -155,7 +156,12 @@ def test_consume_vendor_payment_events_returns_execution_metrics(
     monkeypatch.setattr(
         consumer_module,
         "write_event_to_staging",
-        lambda event: written_events.append(event),
+        lambda event, staging_file: written_events.append(
+            {
+                "event": event,
+                "staging_file": staging_file,
+            }
+        ),
     )
 
     monkeypatch.setattr(
@@ -199,7 +205,16 @@ def test_consume_vendor_payment_events_returns_execution_metrics(
         "large_payment_alerts_sent": 0,
     }
 
-    assert written_events == [accepted_event]
+    assert len(written_events) == 1
+
+    assert written_events[0]["event"] == accepted_event
+
+    assert written_events[0]["staging_file"] == (
+            tmp_path
+            / "stream_window_001"
+            / "events.jsonl"
+    )
+
     assert fake_deduplicator.marked_event_ids == [
         "event-accepted"
     ]
@@ -215,7 +230,11 @@ def test_consume_vendor_payment_events_returns_execution_metrics(
     assert report_arguments["consumer_group"] == (
         "test-consumer-group"
     )
-    assert report_arguments["staging_file"] == staging_file
+    assert report_arguments["staging_files"] == {
+        tmp_path
+        / "stream_window_001"
+        / "events.jsonl"
+    }
     assert report_arguments["runtime_seconds"] >= 0
 
     assert saved_reports == [

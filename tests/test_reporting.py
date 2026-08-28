@@ -156,7 +156,7 @@ def test_build_streaming_summary_report_contains_expected_metadata(
         runtime_seconds=12.34567,
         consumer_group="test-consumer-group",
         topic="test-vendor-payments-topic",
-        staging_file=staging_file,
+        staging_files={staging_file},
     )
 
     assert report["project"] == "Vendor Payments Kafka Streaming"
@@ -224,12 +224,13 @@ def test_build_streaming_summary_report_contains_expected_metadata(
         is False
     )
 
+    assert report["outputs"]["staging"]["files"] == [
+        str(staging_file)
+    ]
+    assert report["outputs"]["staging"]["file_count"] == 1
     assert report["outputs"]["staging"]["row_count"] == 2
     assert report["outputs"]["staging"]["available"] is True
-    assert (
-        report["outputs"]["staging"]["file"]
-        == str(staging_file)
-    )
+
 
     assert report["validation"]["event_balance"]["status"] == "PASS"
     assert (
@@ -257,7 +258,7 @@ def test_build_streaming_summary_report_fails_when_staging_count_mismatches(
         large_payment_alerts_sent=0,
         runtime_seconds=1.5,
         consumer_group="test-consumer-group",
-        staging_file=staging_file,
+        staging_files={staging_file},
     )
 
     assert report["status"] == "failed"
@@ -287,7 +288,7 @@ def test_write_streaming_summary_report_creates_json_file(
         large_payment_alerts_sent=0,
         runtime_seconds=2.25,
         consumer_group="test-consumer-group",
-        staging_file=staging_file,
+        staging_files={staging_file},
     )
 
     write_streaming_summary_report(
@@ -530,3 +531,19 @@ def test_write_producer_execution_report_creates_json_file(
     assert saved_report["producer"]["events_attempted"] == 3
     assert saved_report["producer"]["events_acknowledged"] == 3
     assert saved_report["validation"]["status"] == "PASS"
+
+
+def test_build_streaming_summary_report_marks_staging_unavailable_when_no_files():
+    report = build_streaming_summary_report(
+        consumed_events=0,
+        accepted_events=0,
+        rejected_duplicates=0,
+        failed_events=0,
+        large_payment_alerts_sent=0,
+        runtime_seconds=0.1,
+        consumer_group="test-consumer-group",
+        staging_files=set(),
+    )
+
+    assert report["outputs"]["staging"]["file_count"] == 0
+    assert report["outputs"]["staging"]["available"] is False

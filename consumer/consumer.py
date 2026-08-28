@@ -22,7 +22,7 @@ from common.config import (  # noqa: E402
     KAFKA_SECURITY_PROTOCOL,
     KAFKA_USERNAME,
     LOG_LEVEL,
-    STAGING_FILE,
+    STAGING_DIR,
     TOPIC_VENDOR_PAYMENTS,
     TELEGRAM_LARGE_PAYMENT_ALERT_LIMIT,
 )
@@ -46,6 +46,15 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+def build_staging_file(
+    window_id: str,
+) -> Path:
+    return (
+        STAGING_DIR
+        / window_id
+        / "events.jsonl"
+    )
 
 
 def build_kafka_consumer(consumer_group: str) -> KafkaConsumer:
@@ -107,6 +116,7 @@ def validate_event(event: dict[str, Any]) -> None:
         "event_type",
         "event_timestamp",
         "source_system",
+        "window_id",
     ]
 
     missing_fields = []
@@ -116,7 +126,9 @@ def validate_event(event: dict[str, Any]) -> None:
             missing_fields.append(field)
 
     if missing_fields:
-        raise ValueError(f"Missing required event fields: {missing_fields}")
+        raise ValueError(
+            f"Missing required event fields: {missing_fields}"
+        )
 
 
 def consume_vendor_payment_events(
@@ -131,10 +143,7 @@ def consume_vendor_payment_events(
     )
     deduplicator = RedisDeduplicator()
 
-    STAGING_FILE.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    staging_files: set[Path] = set()
 
     metrics = {
         "consumed_events": 0,
@@ -149,9 +158,9 @@ def consume_vendor_payment_events(
         consumer_name,
     )
     logger.info(
-        "%s writing accepted events to %s",
+        "%s writing accepted events by window under %s",
         consumer_name,
-        STAGING_FILE,
+        STAGING_DIR,
     )
 
     try:
@@ -163,6 +172,11 @@ def consume_vendor_payment_events(
                 validate_event(event)
 
                 event_id = str(event["event_id"])
+                window_id = str(event["window_id"])
+
+                staging_file = build_staging_file(
+                    window_id
+                )
 
                 if deduplicator.is_duplicate(event_id):
                     metrics["rejected_duplicates"] += 1
@@ -185,7 +199,10 @@ def consume_vendor_payment_events(
 
                 for attempt in range(1, 4):
                     try:
-                        write_event_to_staging(event)
+                        write_event_to_staging(
+                            event,
+                            staging_file,
+                        )
                         break
 
                     except Exception as error:
@@ -203,6 +220,8 @@ def consume_vendor_payment_events(
                         )
 
                         time.sleep(2)
+
+                staging_files.add(staging_file)
 
                 metrics["accepted_events"] += 1
 
@@ -284,7 +303,7 @@ def consume_vendor_payment_events(
         runtime_seconds=runtime_seconds,
         consumer_group=consumer_group,
         topic=TOPIC_VENDOR_PAYMENTS,
-        staging_file=STAGING_FILE,
+        staging_files=staging_files,
     )
 
     write_streaming_summary_report(report)

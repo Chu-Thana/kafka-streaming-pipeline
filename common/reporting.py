@@ -8,7 +8,6 @@ from typing import Any
 from common.config import (
     DEDUP_TTL_SECONDS,
     PRODUCER_EXECUTION_REPORT_FILE,
-    STAGING_FILE,
     STREAMING_SUMMARY_REPORT_FILE,
     TOPIC_VENDOR_PAYMENTS,
 )
@@ -242,11 +241,14 @@ def build_streaming_summary_report(
     large_payment_alerts_sent: int,
     runtime_seconds: float,
     consumer_group: str,
+    staging_files: set[Path],
     topic: str = TOPIC_VENDOR_PAYMENTS,
-    staging_file: Path = STAGING_FILE,
 ) -> dict[str, Any]:
     """Build machine-readable metadata for a consumer execution."""
-    staging_record_count = count_jsonl_records(staging_file)
+    staging_record_count = sum(
+        count_jsonl_records(file_path)
+        for file_path in staging_files
+    )
 
     event_balance_validation = build_event_balance_validation(
         consumed_events=consumed_events,
@@ -319,9 +321,19 @@ def build_streaming_summary_report(
         },
         "outputs": {
             "staging": {
-                "file": str(staging_file),
+                "files": [
+                    str(file_path)
+                    for file_path in sorted(staging_files)
+                ],
+                "file_count": len(staging_files),
                 "row_count": staging_record_count,
-                "available": staging_file.exists(),
+                "available": (
+                    bool(staging_files)
+                    and all(
+                        file_path.exists()
+                        for file_path in staging_files
+                    )
+                ),
             },
         },
         "validation": {
