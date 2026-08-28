@@ -13,7 +13,7 @@ from common.config import (  # noqa: E402
     PRODUCER_EXECUTION_REPORT_FILE,
     REDIS_HOST,
     REDIS_PORT,
-    STAGING_FILE,
+    STAGING_DIR,
     STREAMING_SUMMARY_REPORT_FILE,
 )
 
@@ -69,12 +69,48 @@ def clear_streaming_dedup_keys(
     return deleted_key_count
 
 
-def reset_streaming_execution() -> dict[str, int]:
-    """Reset local artifacts and Redis state before a clean execution."""
+def clear_staging_directory(staging_dir: Path) -> int:
+    """Remove all files under the streaming staging directory."""
+    if not staging_dir.exists():
+        logger.info(
+            "Staging directory does not exist, skipping | dir=%s",
+            staging_dir,
+        )
+        return 0
+
     removed_file_count = 0
 
+    for file_path in staging_dir.rglob("*"):
+        if file_path.is_file():
+            file_path.unlink()
+            removed_file_count += 1
+
+    for directory in sorted(
+        (
+            path
+            for path in staging_dir.rglob("*")
+            if path.is_dir()
+        ),
+        reverse=True,
+    ):
+        directory.rmdir()
+
+    logger.info(
+        "Cleared streaming staging directory | dir=%s files=%s",
+        staging_dir,
+        removed_file_count,
+    )
+
+    return removed_file_count
+
+
+def reset_streaming_execution() -> dict[str, int]:
+    """Reset local artifacts and Redis state before a clean execution."""
+    removed_file_count = clear_staging_directory(
+        STAGING_DIR
+    )
+
     execution_files = [
-        STAGING_FILE,
         PRODUCER_EXECUTION_REPORT_FILE,
         STREAMING_SUMMARY_REPORT_FILE,
     ]
