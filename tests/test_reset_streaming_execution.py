@@ -26,6 +26,9 @@ def test_clear_staging_directory_removes_window_files(
         encoding="utf-8",
     )
 
+    gitkeep_file = staging_dir / ".gitkeep"
+    gitkeep_file.touch()
+
     outside_file = tmp_path / "keep.txt"
     outside_file.write_text(
         "keep",
@@ -43,6 +46,7 @@ def test_clear_staging_directory_removes_window_files(
     assert not window_002.exists()
 
     assert outside_file.exists()
+    assert gitkeep_file.exists()
 
 
 def test_clear_staging_directory_returns_zero_when_missing(

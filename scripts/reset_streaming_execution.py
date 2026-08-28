@@ -81,7 +81,10 @@ def clear_staging_directory(staging_dir: Path) -> int:
     removed_file_count = 0
 
     for file_path in staging_dir.rglob("*"):
-        if file_path.is_file():
+        if (
+                file_path.is_file()
+                and file_path.name != ".gitkeep"
+        ):
             file_path.unlink()
             removed_file_count += 1
 
