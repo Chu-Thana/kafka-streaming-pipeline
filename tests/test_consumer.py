@@ -245,3 +245,134 @@ def test_consume_vendor_payment_events_returns_execution_metrics(
             },
         }
     ]
+
+
+def test_consumer_creates_success_marker_when_window_is_complete(
+    monkeypatch,
+    tmp_path,
+):
+    business_event_1 = {
+        "event_id": "event-001",
+        "event_type": "vendor_payment_event",
+        "event_timestamp": "2026-06-06T00:00:00+00:00",
+        "source_system": "vendor_payments_etl_silver",
+        "window_id": "stream_window_001",
+        "payment_amount": 100.0,
+    }
+
+    business_event_2 = {
+        "event_id": "event-002",
+        "event_type": "vendor_payment_event",
+        "event_timestamp": "2026-06-06T00:00:01+00:00",
+        "source_system": "vendor_payments_etl_silver",
+        "window_id": "stream_window_001",
+        "payment_amount": 200.0,
+    }
+
+    completion_event = {
+        "event_id": "stream_window_001-complete",
+        "event_type": "stream_window_complete",
+        "event_timestamp": "2026-06-06T00:00:02+00:00",
+        "source_system": "vendor_payments_streaming_producer",
+        "window_id": "stream_window_001",
+        "expected_event_count": 2,
+    }
+
+    messages = [
+        build_message(business_event_1, offset=0),
+        build_message(business_event_2, offset=1),
+        build_message(completion_event, offset=2),
+    ]
+
+    fake_consumer = FakeKafkaConsumer(messages)
+    fake_deduplicator = FakeRedisDeduplicator()
+
+    written_events = []
+    report_arguments = {}
+
+    monkeypatch.setattr(
+        consumer_module,
+        "STAGING_DIR",
+        tmp_path,
+    )
+
+    monkeypatch.setattr(
+        consumer_module,
+        "connect_consumer_with_retry",
+        lambda consumer_group: fake_consumer,
+    )
+
+    monkeypatch.setattr(
+        consumer_module,
+        "RedisDeduplicator",
+        lambda: fake_deduplicator,
+    )
+
+    monkeypatch.setattr(
+        consumer_module,
+        "write_event_to_staging",
+        lambda event, staging_file: written_events.append(
+            {
+                "event": event,
+                "staging_file": staging_file,
+            }
+        ),
+    )
+
+    monkeypatch.setattr(
+        consumer_module,
+        "is_large_payment_event",
+        lambda event: False,
+    )
+
+    def fake_build_streaming_summary_report(**kwargs):
+        report_arguments.update(kwargs)
+
+        return {
+            "status": "success",
+            "validation": {
+                "status": "PASS",
+            },
+        }
+
+    monkeypatch.setattr(
+        consumer_module,
+        "build_streaming_summary_report",
+        fake_build_streaming_summary_report,
+    )
+
+    monkeypatch.setattr(
+        consumer_module,
+        "write_streaming_summary_report",
+        lambda report: None,
+    )
+
+    metrics = consume_vendor_payment_events(
+        consumer_name="test-consumer",
+        consumer_group="test-consumer-group",
+    )
+
+    success_marker = (
+        tmp_path
+        / "stream_window_001"
+        / "_SUCCESS"
+    )
+
+    assert success_marker.exists()
+
+    assert metrics["consumed_events"] == 2
+    assert metrics["accepted_events"] == 2
+    assert metrics["rejected_duplicates"] == 0
+    assert metrics["failed_events"] == 0
+
+    assert len(written_events) == 2
+
+    assert all(
+        item["event"]["event_type"]
+        == "vendor_payment_event"
+        for item in written_events
+    )
+
+    assert fake_consumer.commit_count == 3
+
+    assert report_arguments["consumed_events"] == 2
