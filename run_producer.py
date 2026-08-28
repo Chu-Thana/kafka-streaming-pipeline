@@ -1,21 +1,39 @@
-"""
-Entry point for running the Vendor Payments Kafka producer.
+import argparse
 
-This wrapper keeps the command simple:
-
-    python run_producer.py
-
-The producer reads the prepared Vendor Payments streaming sample,
-builds Kafka events, intentionally injects duplicate events to simulate
-retry/replay scenarios, and publishes them to the vendor payments Kafka topic.
-"""
-
+from common.config import STREAM_INPUT_DIR
 from producer.producer import main
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Produce one Vendor Payments "
+            "streaming input window."
+        )
+    )
+
+    parser.add_argument(
+        "--window",
+        type=int,
+        required=True,
+        help="Streaming window number, for example 1, 2, or 3.",
+    )
+
+    return parser.parse_args()
+
+
 def run() -> None:
-    """Start the Vendor Payments event producer."""
-    main()
+    args = parse_args()
+
+    source_file = (
+        STREAM_INPUT_DIR
+        / (
+            "vendor_payments_"
+            f"stream_window_{args.window:03d}.csv"
+        )
+    )
+
+    main(source_file)
 
 
 if __name__ == "__main__":

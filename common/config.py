@@ -27,21 +27,24 @@ ALERT_DIR = BASE_DIR / "alerts"
 # ==================================
 # Vendor Payments input / staging
 # ==================================
-VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE = Path(
+VENDOR_PAYMENTS_ETL_SILVER_FILE = Path(
     os.getenv(
-        "VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE",
+        "VENDOR_PAYMENTS_ETL_SILVER_FILE",
         str(
             INPUT_DIR
-            / "vendor_payments_silver_stream_sample_100k.csv"
+            / "vendor_payments_silver.csv"
         ),
     )
 )
 
-STREAM_SAMPLE_FILE = Path(
-    os.getenv(
-        "STREAM_SAMPLE_FILE",
-        str(INPUT_DIR / "vendor_payments_stream_sample.csv"),
-    )
+STREAM_INPUT_DIR = INPUT_DIR / "stream_windows"
+
+STREAM_WINDOW_SIZE = int(
+    os.getenv("STREAM_WINDOW_SIZE", "100000")
+)
+
+STREAM_WINDOW_COUNT = int(
+    os.getenv("STREAM_WINDOW_COUNT", "3")
 )
 
 STAGING_FILE = Path(

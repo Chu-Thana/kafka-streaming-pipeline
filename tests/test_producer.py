@@ -7,8 +7,6 @@ import pytest
 import producer.producer as producer_module
 from producer.producer import (
     inject_duplicate_events,
-    load_vendor_payment_events,
-    main,
     produce_events,
 )
 
@@ -175,7 +173,6 @@ def test_inject_duplicate_events_returns_empty_list():
 
 
 def test_load_vendor_payment_events_returns_events_and_source_count(
-    monkeypatch,
     tmp_path,
 ):
     source_file = tmp_path / "stream_sample.csv"
@@ -196,13 +193,11 @@ def test_load_vendor_payment_events_returns_events_and_source_count(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(
-        producer_module,
-        "STREAM_SAMPLE_FILE",
-        source_file,
+    events, source_row_count = (
+        producer_module.load_vendor_payment_events(
+            source_file
+        )
     )
-
-    events, source_row_count = load_vendor_payment_events()
 
     assert source_row_count == 2
     assert len(events) == 2
@@ -211,22 +206,14 @@ def test_load_vendor_payment_events_returns_events_and_source_count(
 
 
 def test_load_vendor_payment_events_rejects_missing_file(
-    monkeypatch,
     tmp_path,
 ):
     missing_file = tmp_path / "missing.csv"
 
-    monkeypatch.setattr(
-        producer_module,
-        "STREAM_SAMPLE_FILE",
-        missing_file,
-    )
-
-    with pytest.raises(
-        FileNotFoundError,
-        match="Streaming sample file not found",
-    ):
-        load_vendor_payment_events()
+    with pytest.raises(FileNotFoundError):
+        producer_module.load_vendor_payment_events(
+            missing_file
+        )
 
 
 def test_produce_events_collects_successful_acknowledgements(
@@ -368,14 +355,11 @@ def test_main_writes_producer_execution_report(
 
     monkeypatch.setattr(
         producer_module,
-        "STREAM_SAMPLE_FILE",
-        source_file,
-    )
-
-    monkeypatch.setattr(
-        producer_module,
         "load_vendor_payment_events",
-        lambda: (base_events, 2),
+        lambda source_file: (
+            base_events,
+            2,
+        ),
     )
 
     monkeypatch.setattr(
@@ -418,7 +402,9 @@ def test_main_writes_producer_execution_report(
         lambda report: saved_reports.append(report),
     )
 
-    main()
+    producer_module.main(
+        source_file
+    )
 
     assert captured_report_arguments["source_file"] == (
         source_file

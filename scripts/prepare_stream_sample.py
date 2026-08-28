@@ -10,50 +10,127 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR))
 
 from common.config import (  # noqa: E402
-    VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE,
-    RANDOM_SEED,
-    STREAM_SAMPLE_FILE,
-    STREAM_SAMPLE_SIZE,
+    STREAM_INPUT_DIR,
+    STREAM_WINDOW_COUNT,
+    STREAM_WINDOW_SIZE,
+    VENDOR_PAYMENTS_ETL_SILVER_FILE,
 )
 
-def prepare_stream_sample() -> None:
-    """Create a streaming input sample from Vendor Payments ETL silver output."""
 
-    if not VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE.exists():
+def prepare_stream_sample() -> None:
+    """Create bounded streaming input windows from Vendor Payments ETL silver output."""
+
+    if not VENDOR_PAYMENTS_ETL_SILVER_FILE.exists():
         raise FileNotFoundError(
-            "Vendor Payments ETL silver sample file not found: "
-            f"{VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE}"
+            "Vendor Payments ETL silver file not found: "
+            f"{VENDOR_PAYMENTS_ETL_SILVER_FILE}"
         )
 
-    STREAM_SAMPLE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STREAM_INPUT_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    # Read cleaned Vendor Payments ETL silver output as the source for streaming events.
-    df = pd.read_csv(VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE)
+    total_rows = (
+        STREAM_WINDOW_SIZE
+        * STREAM_WINDOW_COUNT
+    )
 
-    if df.empty:
-        raise ValueError("Vendor Payments ETL silver sample file is empty.")
+    stream_df = pd.read_csv(
+        VENDOR_PAYMENTS_ETL_SILVER_FILE,
+        nrows=total_rows,
+        dtype={
+            "purchase_order": "string",
+        },
+    )
 
-    sample_size = min(STREAM_SAMPLE_SIZE, len(df))
+    if len(stream_df) < total_rows:
+        raise ValueError(
+            "Vendor Payments ETL silver file does not contain "
+            f"enough rows. Required: {total_rows:,}, "
+            f"available: {len(stream_df):,}."
+        )
 
-    stream_df = df.sample(
-        n=sample_size,
-        random_state=RANDOM_SEED,
-        replace=False,
-    ).copy()
+    for window_number in range(
+        1,
+        STREAM_WINDOW_COUNT + 1,
+    ):
+        start = (
+            (window_number - 1)
+            * STREAM_WINDOW_SIZE
+        )
+        end = start + STREAM_WINDOW_SIZE
 
-    now = datetime.now(UTC).isoformat()
+        window_df = stream_df.iloc[
+            start:end
+        ].copy()
 
-    # Add event metadata required by the Kafka producer and downstream consumers.
-    stream_df.insert(0, "event_id", [str(uuid.uuid4()) for _ in range(len(stream_df))])
-    stream_df.insert(1, "event_type", "vendor_payment_event")
-    stream_df.insert(2, "event_timestamp", now)
-    stream_df.insert(3, "source_system", "vendor_payments_etl_silver")
+        window_id = (
+            f"stream_window_{window_number:03d}"
+        )
 
-    stream_df.to_csv(STREAM_SAMPLE_FILE, index=False)
+        now = datetime.now(
+            UTC
+        ).isoformat()
 
-    print(f"Created streaming sample: {STREAM_SAMPLE_FILE}")
-    print(f"Rows: {len(stream_df):,}")
-    print(f"Source: {VENDOR_PAYMENTS_ETL_SILVER_SAMPLE_FILE}")
+        window_df.insert(
+            0,
+            "event_id",
+            [
+                str(uuid.uuid4())
+                for _ in range(len(window_df))
+            ],
+        )
+        window_df.insert(
+            1,
+            "event_type",
+            "vendor_payment_event",
+        )
+        window_df.insert(
+            2,
+            "event_timestamp",
+            now,
+        )
+        window_df.insert(
+            3,
+            "source_system",
+            "vendor_payments_etl_silver",
+        )
+        window_df.insert(
+            4,
+            "window_id",
+            window_id,
+        )
+
+        output_file = (
+            STREAM_INPUT_DIR
+            / (
+                "vendor_payments_"
+                f"stream_window_{window_number:03d}.csv"
+            )
+        )
+
+        window_df.to_csv(
+            output_file,
+            index=False,
+        )
+
+        print(
+            f"Created streaming window: {output_file}"
+        )
+        print(
+            f"Window ID: {window_id}"
+        )
+        print(
+            f"Rows: {len(window_df):,}"
+        )
+
+    print(
+        f"Source: {VENDOR_PAYMENTS_ETL_SILVER_FILE}"
+    )
+    print(
+        f"Total rows prepared: {total_rows:,}"
+    )
 
 
 if __name__ == "__main__":

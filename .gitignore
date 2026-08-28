@@ -76,3 +76,4 @@ output/reports/*.json
 !output/reports/
 !output/reports/.gitkeep
 assets/archive/
+data/input/stream_windows/

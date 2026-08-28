@@ -23,7 +23,6 @@ from common.config import (  # noqa: E402
     KAFKA_USERNAME,
     LOG_LEVEL,
     RANDOM_SEED,
-    STREAM_SAMPLE_FILE,
     TOPIC_VENDOR_PAYMENTS,
 )
 from common.event_builder import build_vendor_payment_event  # noqa: E402
@@ -86,24 +85,30 @@ def _build_message_key(
     return str(key).encode("utf-8")
 
 
-def load_vendor_payment_events() -> tuple[
+def load_vendor_payment_events(
+    source_file: Path,
+) -> tuple[
     list[dict[str, Any]],
     int,
 ]:
-    """Load the streaming sample and build base Kafka events."""
-    if not STREAM_SAMPLE_FILE.exists():
+    """Load one streaming input window and build base Kafka events."""
+    if not source_file.exists():
         raise FileNotFoundError(
-            f"Streaming sample file not found: "
-            f"{STREAM_SAMPLE_FILE}. "
-            "Run scripts/prepare_stream_sample.py first."
+            f"Streaming input file not found: "
+            f"{source_file}"
         )
 
-    dataframe = pd.read_csv(STREAM_SAMPLE_FILE)
+    dataframe = pd.read_csv(
+        source_file,
+        dtype={
+            "purchase_order": "string",
+        },
+    )
 
     if dataframe.empty:
         raise ValueError(
-            f"Streaming sample file is empty: "
-            f"{STREAM_SAMPLE_FILE}"
+            f"Streaming input file is empty: "
+            f"{source_file}"
         )
 
     source_row_count = len(dataframe)
@@ -185,7 +190,19 @@ def produce_events(
                 delivery_future.get(
                     timeout=acknowledgement_timeout_seconds
                 )
+
                 metrics["events_acknowledged"] += 1
+
+                if (
+                    metrics["events_acknowledged"] % 10000
+                    == 0
+                ):
+                    logger.info(
+                        "Producer progress | "
+                        "acknowledged=%s/%s",
+                        f"{metrics['events_acknowledged']:,}",
+                        f"{metrics['events_attempted']:,}",
+                    )
 
             except Exception as error:
                 metrics["failed_events"] += 1
@@ -246,12 +263,17 @@ def produce_events(
     return metrics
 
 
-def main() -> None:
-    """Produce events and write producer execution metadata."""
+def main(
+    source_file: Path,
+) -> None:
+    """Produce one streaming window and write execution metadata."""
+
     execution_started_at = time.perf_counter()
 
     base_events, source_row_count = (
-        load_vendor_payment_events()
+        load_vendor_payment_events(
+            source_file
+        )
     )
 
     produced_events = inject_duplicate_events(
@@ -273,7 +295,7 @@ def main() -> None:
     )
 
     report = build_producer_execution_report(
-        source_file=STREAM_SAMPLE_FILE,
+        source_file=source_file,
         source_row_count=source_row_count,
         base_event_count=len(base_events),
         duplicate_events_injected=(
@@ -339,6 +361,3 @@ def main() -> None:
         report["validation"]["status"],
     )
 
-
-if __name__ == "__main__":
-    main()
