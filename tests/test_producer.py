@@ -99,13 +99,14 @@ def build_event(
     event_id: str,
     business_composite_key: str | None = None,
     source_row_hash: str | None = None,
+    window_id: str = "stream_window_001",
 ) -> dict[str, Any]:
-    """Build a lightweight vendor-payment event for tests."""
     return {
         "event_id": event_id,
         "event_type": "vendor_payment_event",
         "event_timestamp": "2026-06-19T00:00:00+00:00",
         "source_system": "vendor_payments_etl_silver",
+        "window_id": window_id,
         "business_composite_key": business_composite_key,
         "source_row_hash": source_row_hash,
     }
@@ -180,14 +181,16 @@ def test_load_vendor_payment_events_returns_events_and_source_count(
     source_file.write_text(
         (
             "event_id,event_type,event_timestamp,"
-            "source_system,supplier_name,vouchers_paid\n"
+            "source_system,window_id,supplier_name,vouchers_paid\n"
             "event-001,vendor_payment_event,"
             "2026-06-19T00:00:00+00:00,"
             "vendor_payments_etl_silver,"
+            "stream_window_001,"
             "Supplier A,100.0\n"
             "event-002,vendor_payment_event,"
             "2026-06-19T00:00:01+00:00,"
             "vendor_payments_etl_silver,"
+            "stream_window_001,"
             "Supplier B,200.0\n"
         ),
         encoding="utf-8",
@@ -368,14 +371,30 @@ def test_main_writes_producer_execution_report(
         lambda events: produced_events,
     )
 
-    monkeypatch.setattr(
-        producer_module,
-        "produce_events",
-        lambda events: {
+    produced_batches = []
+
+    def fake_produce_events(
+            events,
+    ):
+        produced_batches.append(events)
+
+        if len(events) == 1:
+            return {
+                "events_attempted": 1,
+                "events_acknowledged": 1,
+                "failed_events": 0,
+            }
+
+        return {
             "events_attempted": 3,
             "events_acknowledged": 3,
             "failed_events": 0,
-        },
+        }
+
+    monkeypatch.setattr(
+        producer_module,
+        "produce_events",
+        fake_produce_events,
     )
 
     def fake_build_producer_execution_report(
@@ -436,6 +455,20 @@ def test_main_writes_producer_execution_report(
             },
         }
     ]
+
+    assert len(produced_batches) == 2
+
+    assert produced_batches[1][0]["event_type"] == (
+        "stream_window_complete"
+    )
+
+    assert produced_batches[1][0]["window_id"] == (
+        "stream_window_001"
+    )
+
+    assert produced_batches[1][0][
+               "expected_event_count"
+           ] == 3
 
 
 def test_produce_events_resolves_acknowledgements_in_batches(

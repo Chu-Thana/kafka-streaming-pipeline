@@ -19,6 +19,7 @@ def test_build_vendor_payment_event_contains_required_fields():
             "department": "FINANCE",
             "payment_status": "PAID",
             "vouchers_paid": 12500.50,
+            "window_id": "stream_window_001",
         }
     )
 
@@ -48,6 +49,7 @@ def test_build_vendor_payment_event_rejects_missing_event_id():
             "event_type": "vendor_payment_event",
             "event_timestamp": "2026-06-06T00:00:00+00:00",
             "source_system": "vendor_payments_etl_silver",
+            "window_id": "stream_window_001",
         }
     )
 

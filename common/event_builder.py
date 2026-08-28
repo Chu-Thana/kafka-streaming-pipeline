@@ -11,6 +11,7 @@ REQUIRED_EVENT_FIELDS = [
     "event_type",
     "event_timestamp",
     "source_system",
+    "window_id",
 ]
 
 
@@ -36,9 +37,15 @@ def build_vendor_payment_event(row: pd.Series) -> dict[str, Any]:
 
         # Promote frequently used fields to the top level for routing, deduplication, and alerting.
         "source_system": str(
-            row.get("source_system", "vendor_payments_etl_silver")
+            row.get(
+            "source_system",
+            "vendor_payments_etl_silver",
+            )
         ),
-        "source_row_hash": _to_json_safe_value(row.get("source_row_hash")),
+        "window_id": str(row["window_id"]),
+        "source_row_hash": _to_json_safe_value(
+            row.get("source_row_hash")
+        ),
         "business_composite_key": _to_json_safe_value(
             row.get("business_composite_key")
         ),
@@ -66,3 +73,21 @@ def build_vendor_payment_event(row: pd.Series) -> dict[str, Any]:
         raise ValueError(f"Missing required event fields: {missing_fields}")
 
     return event
+
+
+def build_stream_window_complete_event(
+    window_id: str,
+    expected_event_count: int,
+) -> dict[str, Any]:
+    """Build a control event marking producer completion for one window."""
+    return {
+        "event_id": f"{window_id}-complete",
+        "event_type": "stream_window_complete",
+        "event_timestamp": datetime.now(
+            UTC
+        ).isoformat(),
+        "source_system": "vendor_payments_streaming_producer",
+        "window_id": window_id,
+        "expected_event_count": expected_event_count,
+    }
+

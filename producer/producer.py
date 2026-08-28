@@ -25,7 +25,11 @@ from common.config import (  # noqa: E402
     RANDOM_SEED,
     TOPIC_VENDOR_PAYMENTS,
 )
-from common.event_builder import build_vendor_payment_event  # noqa: E402
+from common.event_builder import (  # noqa: E402
+    build_stream_window_complete_event,
+    build_vendor_payment_event,
+)
+
 from common.reporting import (  # noqa: E402
     build_producer_execution_report,
     write_producer_execution_report,
@@ -276,6 +280,18 @@ def main(
         )
     )
 
+    window_ids = {
+        str(event["window_id"])
+        for event in base_events
+    }
+
+    if len(window_ids) != 1:
+        raise ValueError(
+            "Producer execution must contain exactly one window."
+        )
+
+    window_id = next(iter(window_ids))
+
     produced_events = inject_duplicate_events(
         base_events
     )
@@ -283,6 +299,36 @@ def main(
     delivery_metrics = produce_events(
         produced_events
     )
+
+    if (
+        delivery_metrics["failed_events"] == 0
+        and delivery_metrics["events_acknowledged"]
+        == delivery_metrics["events_attempted"]
+    ):
+        window_complete_event = (
+            build_stream_window_complete_event(
+                window_id=window_id,
+                expected_event_count=delivery_metrics[
+                    "events_acknowledged"
+                ],
+            )
+        )
+
+        window_completion_metrics = produce_events(
+            [window_complete_event]
+        )
+
+        if (
+            window_completion_metrics["failed_events"] > 0
+            or window_completion_metrics[
+                "events_acknowledged"
+            ]
+            != 1
+        ):
+            raise RuntimeError(
+                "Failed to publish completion marker "
+                f"for window: {window_id}"
+            )
 
     runtime_seconds = (
         time.perf_counter()
