@@ -60,7 +60,7 @@ Prevent data loss first, then handle duplicates safely.
 
 ## 🧭 Architecture
 
-![Vendor Payments Streaming Pipeline Architecture](assets/vendor-payments-streaming/00_streaming_architecture.png)
+![Vendor Payments Streaming Pipeline Architecture](assets/vendor-payments-streaming/00_streaming_architecture_v2.png)
 
 ```text
 Vendor Payments Silver Data
@@ -457,7 +457,7 @@ vendor-payments-streaming-pipeline/
 │
 ├── assets/
 │   └── vendor-payments-streaming/
-│       ├── 00_streaming_architecture.png
+│       ├── 00_streaming_architecture_v2.png
 │       ├── 01_streaming_infrastructure.png
 │       ├── 02_streaming_kafka_topic.png
 │       ├── 03_streaming_tests_and_lint.png
